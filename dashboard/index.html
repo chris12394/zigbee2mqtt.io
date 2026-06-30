@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bredis Homelab</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Homelab">
+<style>
+:root{
+  --bg:#0d1117; --surface:#161b22; --surface2:#21262d; --border:#30363d;
+  --text:#e6edf3; --text-muted:#8b949e;
+  --green:#3fb950; --red:#f85149; --yellow:#d29922; --accent:#58a6ff;
+  --font-mono:'SFMono-Regular','Consolas','Liberation Mono',Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{background:var(--bg);overscroll-behavior-y:contain}
+body{
+  color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  font-size:14px;min-height:100vh;
+}
+
+header{
+  background:var(--surface);border-bottom:1px solid var(--border);
+  padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));
+  position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;gap:10px;
+}
+.status-dot{width:10px;height:10px;border-radius:50%;background:var(--green);flex-shrink:0;transition:background .3s,box-shadow .3s}
+.status-dot.pulse{box-shadow:0 0 0 0 rgba(63,185,80,.5);animation:pulse 1.8s infinite}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(63,185,80,.45)}
+  70%{box-shadow:0 0 0 7px rgba(63,185,80,0)}
+  100%{box-shadow:0 0 0 0 rgba(63,185,80,0)}
+}
+.header-info{flex:1;min-width:0}
+.header-title{font-size:15px;font-weight:600}
+.header-sub{font-size:11px;color:var(--text-muted);font-family:var(--font-mono);margin-top:1px}
+.icon-btn{
+  background:var(--surface2);border:1px solid var(--border);color:var(--text-muted);
+  border-radius:6px;padding:7px 11px;font-size:12px;cursor:pointer;white-space:nowrap;
+}
+.icon-btn:active{opacity:.6}
+.icon-btn.active{color:var(--green);border-color:var(--green)}
+
+#pullIndicator{
+  display:flex;align-items:center;justify-content:center;height:0;overflow:hidden;
+  color:var(--text-muted);font-size:11px;font-family:var(--font-mono);
+  transition:height .15s;gap:6px;
+}
+#pullIndicator.show{height:34px}
+.pull-spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite}
+
+main{padding:16px;padding-bottom:max(24px,env(safe-area-inset-bottom));max-width:600px;margin:0 auto}
+.section-label{font-size:11px;font-weight:600;letter-spacing:1.2px;text-transform:uppercase;color:var(--text-muted);margin:20px 0 10px}
+.section-label:first-child{margin-top:0}
+.section-label.critical{color:#e2716b}
+
+.tile-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:14px 12px;min-height:68px;cursor:pointer;
+  display:flex;align-items:center;gap:10px;
+  transition:background .12s,transform .1s;position:relative;overflow:hidden;user-select:none;
+}
+.tile:active{transform:scale(.97);background:var(--surface2)}
+.tile.loading{pointer-events:none}
+.tile-icon{font-size:21px;line-height:1;flex-shrink:0}
+.tile-text{flex:1;min-width:0}
+.tile-title{font-size:13px;font-weight:500;line-height:1.3}
+.tile-subtitle{font-size:10.5px;color:var(--text-muted);margin-top:2px;font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile-spinner{position:absolute;top:7px;right:8px;width:13px;height:13px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;display:none}
+.tile.loading .tile-spinner{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.tile-grid.critical .tile{border-color:rgba(248,81,73,.35);background:rgba(248,81,73,.05)}
+.tile-grid.critical .tile:active{background:rgba(248,81,73,.13)}
+
+.output-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s}
+.output-overlay.visible{opacity:1;pointer-events:all}
+.output-panel{
+  position:fixed;bottom:0;left:0;right:0;max-height:82vh;
+  background:var(--surface);border-radius:16px 16px 0 0;border-top:1px solid var(--border);
+  z-index:201;transform:translateY(100%);transition:transform .3s cubic-bezier(.32,.72,0,1);
+  display:flex;flex-direction:column;max-width:600px;margin:0 auto;
+}
+.output-panel.visible{transform:translateY(0)}
+.output-panel-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:10px auto 0;flex-shrink:0}
+.output-panel-header{display:flex;align-items:center;padding:12px 16px 10px;border-bottom:1px solid var(--border);gap:10px;flex-shrink:0}
+.output-panel-title{flex:1;font-size:14px;font-weight:600}
+.output-panel-ts{font-size:11px;color:var(--text-muted);font-family:var(--font-mono)}
+.output-panel-close{background:var(--surface2);border:1px solid var(--border);color:var(--text-muted);border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:14px;flex-shrink:0}
+.output-panel-body{overflow-y:auto;padding:14px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));flex:1}
+
+.output-pre{font-family:var(--font-mono);font-size:12px;line-height:1.65;white-space:pre-wrap;word-break:break-word}
+
+.service-list{display:flex;flex-direction:column;gap:4px}
+.service-chip{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--surface2);border-radius:6px;font-family:var(--font-mono);font-size:12px;border-left:3px solid var(--border)}
+.service-chip .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+.stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.stat-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px}
+.stat-card-label{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:4px}
+.stat-card-value{font-family:var(--font-mono);font-size:13px;font-weight:600}
+
+.progress-track{height:6px;background:var(--surface);border-radius:3px;overflow:hidden;margin-top:6px}
+.progress-fill{height:100%;border-radius:3px;transition:width .5s ease}
+
+.fritz-card{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px}
+.fritz-card-title{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--text-muted);margin-bottom:8px}
+.fritz-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:12px;font-family:var(--font-mono)}
+.fritz-row-label{color:var(--text-muted)}
+.vpn-tunnels{display:flex;gap:8px;flex-wrap:wrap;margin-top:2px}
+.vpn-tunnel{display:flex;align-items:center;gap:6px;padding:5px 9px;background:var(--surface);border-radius:5px;font-size:11px;font-family:var(--font-mono)}
+
+.table-wrap{overflow-x:auto}
+table.out-table{border-collapse:collapse;width:100%;font-family:var(--font-mono);font-size:11.5px}
+table.out-table th{text-align:left;color:var(--text-muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.out-table td{padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.out-table tr:last-child td{border-bottom:none}
+
+.dialog-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:300;display:flex;align-items:center;justify-content:center;padding:20px;opacity:0;pointer-events:none;transition:opacity .2s}
+.dialog-overlay.visible{opacity:1;pointer-events:all}
+.dialog{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;max-width:340px;width:100%;transform:scale(.95);transition:transform .2s}
+.dialog-overlay.visible .dialog{transform:scale(1)}
+.dialog-icon{font-size:28px;margin-bottom:10px}
+.dialog-title{font-size:16px;font-weight:600;margin-bottom:8px}
+.dialog-body{font-size:13px;color:var(--text-muted);line-height:1.5;margin-bottom:18px}
+.dialog-body strong{color:var(--text)}
+.dialog-actions{display:flex;gap:10px}
+.btn{flex:1;padding:13px;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer;border:none}
+.btn:active{opacity:.7}
+.btn-cancel{background:var(--surface2);color:var(--text-muted);border:1px solid var(--border)}
+.btn-confirm{background:var(--red);color:#fff}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:10px 16px;border-radius:8px;font-size:13px;z-index:400;opacity:0;transition:opacity .2s,transform .2s;max-width:90vw;text-align:center}
+.toast.visible{opacity:1;transform:translateX(-50%) translateY(0)}
+
+.ntfy-hint{margin-top:22px;text-align:center;font-size:11px;color:var(--text-muted)}
+.ntfy-hint a{color:var(--accent);text-decoration:none}
+
+::-webkit-scrollbar{width:4px}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+</style>
+</head>
+<body>
+
+<header>
+  <div id="statusDot" class="status-dot"></div>
+  <div class="header-info">
+    <div class="header-title">Bredis Homelab</div>
+    <div class="header-sub">pve · 192.168.198.83</div>
+  </div>
+  <button class="icon-btn" id="autoRefreshBtn">↻ 30s</button>
+</header>
+
+<div id="pullIndicator"><div class="pull-spinner"></div><span>Aktualisiere…</span></div>
+
+<main id="main">
+  <div class="section-label">Diagnose</div>
+  <div class="tile-grid" id="diagnoseTiles"></div>
+
+  <div class="section-label critical">⚠ Aktionen</div>
+  <div class="tile-grid critical" id="actionTiles"></div>
+
+  <div class="ntfy-hint" id="ntfyHint"></div>
+</main>
+
+<div class="output-overlay" id="outputOverlay"></div>
+<div class="output-panel" id="outputPanel">
+  <div class="output-panel-handle" id="outputHandle"></div>
+  <div class="output-panel-header">
+    <span id="outputTitle" class="output-panel-title"></span>
+    <span id="outputTs" class="output-panel-ts"></span>
+    <div class="output-panel-close" id="outputClose">✕</div>
+  </div>
+  <div class="output-panel-body" id="outputBody"></div>
+</div>
+
+<div class="dialog-overlay" id="confirmOverlay">
+  <div class="dialog">
+    <div id="confirmIcon" class="dialog-icon"></div>
+    <div id="confirmTitle" class="dialog-title"></div>
+    <div id="confirmBody" class="dialog-body"></div>
+    <div class="dialog-actions">
+      <button class="btn btn-cancel" id="confirmCancel">Abbrechen</button>
+      <button class="btn btn-confirm" id="confirmOk">Ausführen</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+var DIAGNOSE = [
+  { key:'status',     title:'System-Status',  icon:'📊' },
+  { key:'containers', title:'Container & VMs', icon:'📦' },
+  { key:'disk',       title:'Speicher',        icon:'💾' },
+  { key:'smart',      title:'SMART',           icon:'🩺' },
+  { key:'nas',        title:'NAS-Status',      icon:'🗄️' },
+  { key:'temp',       title:'Temperatur',      icon:'🌡️' },
+  { key:'health',     title:'Netzwerk-Health', icon:'🌐' },
+  { key:'services',   title:'Dienste',         icon:'🟢' },
+  { key:'backups',    title:'Letzte Backups',  icon:'📁' },
+  { key:'logs',       title:'Fehler-Logs',     icon:'⚠️' },
+  { key:'wd_status',  title:'WD Offsite',      icon:'☁️' },
+  { key:'fritzbox',   title:'FritzBox / Netz', icon:'📡' },
+  { key:'backup_hdd', title:'USB-HDD Status',  icon:'🔌' }
+];
+
+var ACTIONS = [
+  { key:'reboot',           title:'Server neu starten',   icon:'🔄', warn:'Der Proxmox-Host startet neu. Er ist ca. 2 Minuten nicht erreichbar.' },
+  { key:'wd_backup',        title:'WD-Backup starten',    icon:'💿', warn:'Startet ein restic-Backup zum Offsite-WD im Hintergrund.' },
+  { key:'fritzbox_restart', title:'FritzBox neu starten', icon:'📡', warn:'Die FritzBox startet neu (~5–10 Min). VPN-Verbindungen trennen kurz!' },
+  { key:'backup_eject',     title:'USB-HDD auswerfen',    icon:'⏏️', warn:'Wirft die USB-Platte am NAS sicher aus.' }
+];
+
+var AUTO_REFRESH_KEYS = ['status', 'services'];
+var AUTO_REFRESH_MS = 30000;
+
+var state = {
+  autoRefresh: false,
+  autoRefreshTimer: null,
+  pendingAction: null,
+  currentOutputKey: null
+};
+
+function $(id) { return document.getElementById(id); }
+
+function esc(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ---------- Tiles ----------
+function buildTiles(container, items, critical) {
+  container.innerHTML = '';
+  items.forEach(function (item) {
+    var tile = document.createElement('div');
+    tile.className = 'tile';
+    tile.id = 'tile-' + item.key;
+    tile.innerHTML =
+      '<div class="tile-icon">' + item.icon + '</div>' +
+      '<div class="tile-text">' +
+        '<div class="tile-title">' + esc(item.title) + '</div>' +
+        '<div class="tile-subtitle" id="sub-' + item.key + '"></div>' +
+      '</div>' +
+      '<div class="tile-spinner"></div>';
+    tile.addEventListener('click', function () {
+      if (critical) openConfirm(item);
+      else runAction(item.key, item.title, false);
+    });
+    container.appendChild(tile);
+  });
+}
+
+buildTiles($('diagnoseTiles'), DIAGNOSE, false);
+buildTiles($('actionTiles'), ACTIONS, true);
+
+// ---------- API ----------
+function callApi(key, confirmed) {
+  return fetch('/api/action/' + encodeURIComponent(key), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirmed: !!confirmed })
+  }).then(function (resp) {
+    return resp.json().then(function (data) {
+      if (resp.status === 401) {
+        var e = new Error(data.error || 'nicht authentifiziert');
+        e.type = 'auth';
+        throw e;
+      }
+      if (resp.status === 400 && data.needs_confirm) {
+        var e2 = new Error('confirm');
+        e2.type = 'confirm';
+        throw e2;
+      }
+      if (!resp.ok) {
+        var e3 = new Error(data.error || 'Fehler (' + resp.status + ')');
+        throw e3;
+      }
+      return data;
+    });
+  });
+}
+
+function runAction(key, title, confirmed) {
+  var tile = $('tile-' + key);
+  if (tile) tile.classList.add('loading');
+  return callApi(key, confirmed)
+    .then(function (result) {
+      updateTileSubtitle(key, result.ts);
+      showOutput(key, result.title, result.output, result.ts);
+      return result;
+    })
+    .catch(function (err) {
+      if (err.type === 'auth') {
+        showToast('Sitzung abgelaufen – bitte Seite neu laden', true);
+      } else if (err.type !== 'confirm') {
+        showToast(err.message || 'Netzwerkfehler', true);
+      }
+      throw err;
+    })
+    .finally(function () {
+      if (tile) tile.classList.remove('loading');
+    });
+}
+
+function updateTileSubtitle(key, ts) {
+  var el = $('sub-' + key);
+  if (el) el.textContent = ts;
+}
+
+// ---------- Confirm dialog ----------
+function openConfirm(item) {
+  state.pendingAction = item;
+  $('confirmIcon').textContent = item.icon;
+  $('confirmTitle').textContent = item.title;
+  $('confirmBody').innerHTML = 'Diese Aktion verändert den Server.<br><strong>' + esc(item.warn || item.title) + '</strong><br>Wirklich ausführen?';
+  $('confirmOverlay').classList.add('visible');
+  if (navigator.vibrate) navigator.vibrate(30);
+}
+
+function closeConfirm() {
+  state.pendingAction = null;
+  $('confirmOverlay').classList.remove('visible');
+}
+
+$('confirmCancel').addEventListener('click', closeConfirm);
+$('confirmOverlay').addEventListener('click', function (e) {
+  if (e.target === e.currentTarget) closeConfirm();
+});
+$('confirmOk').addEventListener('click', function () {
+  var item = state.pendingAction;
+  if (!item) return;
+  closeConfirm();
+  if (navigator.vibrate) navigator.vibrate([20, 40, 20]);
+  runAction(item.key, item.title, true).catch(function () {});
+});
+
+// ---------- Output panel ----------
+function showOutput(key, title, output, ts) {
+  state.currentOutputKey = key;
+  $('outputTitle').textContent = title;
+  $('outputTs').textContent = ts;
+  $('outputBody').innerHTML = renderStructured(key, output);
+  $('outputOverlay').classList.add('visible');
+  $('outputPanel').classList.add('visible');
+}
+
+function closeOutput() {
+  state.currentOutputKey = null;
+  $('outputOverlay').classList.remove('visible');
+  $('outputPanel').classList.remove('visible');
+}
+
+$('outputClose').addEventListener('click', closeOutput);
+$('outputOverlay').addEventListener('click', closeOutput);
+
+// swipe-down on handle/header to close
+(function () {
+  var startY = null;
+  var panel = $('outputPanel');
+  function onStart(e) { startY = (e.touches ? e.touches[0] : e).clientY; }
+  function onMove(e) {
+    if (startY === null) return;
+    var y = (e.touches ? e.touches[0] : e).clientY;
+    var dy = y - startY;
+    if (dy > 0) panel.style.transform = 'translateY(' + dy + 'px)';
+  }
+  function onEnd(e) {
+    if (startY === null) return;
+    var y = (e.changedTouches ? e.changedTouches[0] : e).clientY;
+    var dy = y - startY;
+    panel.style.transform = '';
+    startY = null;
+    if (dy > 80) closeOutput();
+  }
+  $('outputHandle').addEventListener('touchstart', onStart, { passive: true });
+  $('outputHandle').addEventListener('touchmove', onMove, { passive: true });
+  $('outputHandle').addEventListener('touchend', onEnd);
+})();
+
+// ---------- Structured renderers ----------
+function renderStructured(key, output) {
+  try {
+    switch (key) {
+      case 'services':   return renderServices(output);
+      case 'fritzbox':   return renderFritzbox(output);
+      case 'disk':       return renderDisk(output);
+      case 'status':     return renderStatus(output);
+      case 'health':     return renderHealth(output);
+      case 'containers': return renderTable(output);
+      default:           return '<pre class="output-pre">' + esc(output) + '</pre>';
+    }
+  } catch (e) {
+    return '<pre class="output-pre">' + esc(output) + '</pre>';
+  }
+}
+
+function parsePercent(str) {
+  var m = str.match(/(\d+(?:\.\d+)?)\s*%/);
+  return m ? parseFloat(m[1]) : null;
+}
+
+function progressColor(pct) {
+  if (pct >= 90) return 'var(--red)';
+  if (pct >= 75) return 'var(--yellow)';
+  return 'var(--green)';
+}
+
+function renderServices(output) {
+  var lines = output.split('\n').filter(function (l) { return l.trim(); });
+  if (!lines.length) return '<pre class="output-pre">' + esc(output) + '</pre>';
+  var hasDown = false;
+  var html = '<div class="service-list">' + lines.map(function (line) {
+    var ok = line.indexOf('[OK]') !== -1;
+    var down = line.indexOf('[DOWN]') !== -1;
+    if (down) hasDown = true;
+    var color = ok ? 'var(--green)' : down ? 'var(--red)' : 'var(--text-muted)';
+    var label = ok ? 'OK' : down ? 'DOWN' : '?';
+    var text = line.replace('[OK]', '').replace('[DOWN]', '').trim();
+    return '<div class="service-chip" style="border-left-color:' + color + '">' +
+      '<span class="dot" style="background:' + color + '"></span>' +
+      '<span style="flex:1">' + esc(text) + '</span>' +
+      '<span style="font-size:10px;font-weight:600;color:' + color + '">' + label + '</span></div>';
+  }).join('') + '</div>';
+  setStatusDot(hasDown ? 'var(--red)' : 'var(--green)');
+  return html;
+}
+
+function renderHealth(output) {
+  var lines = output.split('\n').filter(function (l) { return l.trim(); });
+  if (!lines.length) return '<pre class="output-pre">' + esc(output) + '</pre>';
+  return '<div class="service-list">' + lines.map(function (line) {
+    var ok = /\bOK\b|online/i.test(line) && !/fail|error|down|offline/i.test(line);
+    var fail = /fail|error|down|offline/i.test(line);
+    var color = ok ? 'var(--green)' : fail ? 'var(--red)' : 'var(--text-muted)';
+    return '<div class="service-chip" style="border-left-color:' + color + '">' +
+      '<span class="dot" style="background:' + color + '"></span>' +
+      '<span>' + esc(line.trim()) + '</span></div>';
+  }).join('') + '</div>';
+}
+
+function renderDisk(output) {
+  var lines = output.split('\n');
+  var bars = '';
+  lines.forEach(function (line) {
+    if (!line.trim()) return;
+    var pct = parsePercent(line);
+    if (pct === null) return;
+    var color = progressColor(pct);
+    var label = line.split(':')[0].trim();
+    if (!label || label === line.trim()) {
+      // table row like ".../  67G ... 32% /"
+      var parts = line.trim().split(/\s+/);
+      label = parts[parts.length - 1] || line.trim();
+    }
+    bars += '<div style="margin-bottom:12px">' +
+      '<div style="display:flex;justify-content:space-between;font-size:11px;font-family:var(--font-mono);color:var(--text-muted);margin-bottom:4px">' +
+      '<span>' + esc(label) + '</span><span style="color:' + color + '">' + pct + '%</span></div>' +
+      '<div class="progress-track"><div class="progress-fill" style="width:' + pct + '%;background:' + color + '"></div></div></div>';
+  });
+  var pre = '<pre class="output-pre" style="margin-top:' + (bars ? '10px' : '0') + ';font-size:11px;opacity:.85">' + esc(output) + '</pre>';
+  return bars + pre;
+}
+
+function renderStatus(output) {
+  var lines = output.split('\n').filter(function (l) { return l.trim(); });
+  var cards = [];
+  lines.forEach(function (line) {
+    var idx = line.indexOf(':');
+    if (idx === -1) return;
+    var label = line.slice(0, idx).trim();
+    var value = line.slice(idx + 1).trim();
+    cards.push({ label: label, value: value, pct: parsePercent(value) });
+  });
+  if (!cards.length) return '<pre class="output-pre">' + esc(output) + '</pre>';
+  var hasCritical = cards.some(function (c) { return c.pct !== null && c.pct >= 90; });
+  setStatusDot(hasCritical ? 'var(--red)' : 'var(--green)');
+  return '<div class="stat-grid">' + cards.map(function (c) {
+    var color = c.pct !== null ? progressColor(c.pct) : 'var(--text)';
+    return '<div class="stat-card">' +
+      '<div class="stat-card-label">' + esc(c.label) + '</div>' +
+      '<div class="stat-card-value" style="color:' + color + '">' + esc(c.value) + '</div>' +
+      (c.pct !== null ? '<div class="progress-track"><div class="progress-fill" style="width:' + c.pct + '%;background:' + color + '"></div></div>' : '') +
+      '</div>';
+  }).join('') + '</div>';
+}
+
+function renderFritzbox(output) {
+  var lines = output.split('\n');
+  var wan = [], vpn = [], inVpn = false;
+  lines.forEach(function (line) {
+    if (!line.trim()) return;
+    if (/VPN-Tunnel/i.test(line)) { inVpn = true; return; }
+    (inVpn ? vpn : wan).push(line.trim());
+  });
+  var html = '';
+  if (wan.length) {
+    html += '<div class="fritz-card"><div class="fritz-card-title">WAN / Internet</div>';
+    wan.forEach(function (line) {
+      var idx = line.indexOf(':');
+      if (idx === -1) {
+        html += '<div class="fritz-row"><span class="fritz-row-label">' + esc(line) + '</span></div>';
+        return;
+      }
+      var k = line.slice(0, idx).trim();
+      var v = line.slice(idx + 1).trim();
+      var ok = /OK|ok|Connected/i.test(v) && !/down|fail/i.test(v);
+      var fail = /fail|down|error/i.test(v);
+      var color = ok ? 'var(--green)' : fail ? 'var(--red)' : 'var(--text)';
+      html += '<div class="fritz-row"><span class="fritz-row-label">' + esc(k) + '</span><span style="color:' + color + '">' + esc(v) + '</span></div>';
+    });
+    html += '</div>';
+  }
+  if (vpn.length) {
+    html += '<div class="fritz-card"><div class="fritz-card-title">VPN-Tunnel</div><div class="vpn-tunnels">';
+    vpn.forEach(function (line) {
+      var up = /:\s*up/i.test(line);
+      var down = /:\s*down/i.test(line);
+      var color = up ? 'var(--green)' : down ? 'var(--text-muted)' : 'var(--yellow)';
+      var name = line.replace(/:\s*(up|down)/i, '').trim();
+      html += '<div class="vpn-tunnel"><span class="dot" style="width:8px;height:8px;border-radius:50%;background:' + color + '"></span><span>' + esc(name) + '</span></div>';
+    });
+    html += '</div></div>';
+  }
+  return html || '<pre class="output-pre">' + esc(output) + '</pre>';
+}
+
+function renderTable(output) {
+  var lines = output.split('\n').filter(function (l) { return l.trim(); });
+  if (lines.length < 2) return '<pre class="output-pre">' + esc(output) + '</pre>';
+  // Fixed-width parsing anhand der Spaltenstartpositionen in der Kopfzeile,
+  // da Felder wie "Lock" oft leer sind und ein reiner Split auf Whitespace
+  // dann Spalten verschiebt.
+  var headerLine = lines[0];
+  var cols = [];
+  var re = /\S+/g, m;
+  while ((m = re.exec(headerLine))) cols.push({ name: m[0], start: m.index });
+  if (cols.length < 2) return '<pre class="output-pre">' + esc(output) + '</pre>';
+  var rows = lines.slice(1).map(function (line) {
+    return cols.map(function (col, i) {
+      var end = (i + 1 < cols.length) ? cols[i + 1].start : line.length;
+      return line.slice(col.start, end).trim();
+    });
+  });
+  var html = '<div class="table-wrap"><table class="out-table"><thead><tr>' +
+    cols.map(function (h) { return '<th>' + esc(h.name) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+    rows.map(function (r) {
+      var statusColor = '';
+      if (/running/i.test(r.join(' '))) statusColor = 'var(--green)';
+      else if (/stopped/i.test(r.join(' '))) statusColor = 'var(--text-muted)';
+      return '<tr>' + r.map(function (c, i) {
+        var style = (i === 1 && statusColor) ? ' style="color:' + statusColor + '"' : '';
+        return '<td' + style + '>' + esc(c) + '</td>';
+      }).join('') + '</tr>';
+    }).join('') + '</tbody></table></div>';
+  return html;
+}
+
+function setStatusDot(color) {
+  var dot = $('statusDot');
+  dot.style.background = color;
+}
+
+// ---------- Toast ----------
+var toastTimer = null;
+function showToast(msg, isError) {
+  var el = $('toast');
+  el.textContent = msg;
+  el.style.borderColor = isError ? 'var(--red)' : 'var(--border)';
+  el.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function () { el.classList.remove('visible'); }, 3500);
+}
+
+// ---------- Auto-refresh ----------
+$('autoRefreshBtn').addEventListener('click', function () {
+  state.autoRefresh = !state.autoRefresh;
+  this.classList.toggle('active', state.autoRefresh);
+  if (state.autoRefresh) {
+    doAutoRefresh();
+    state.autoRefreshTimer = setInterval(doAutoRefresh, AUTO_REFRESH_MS);
+    showToast('Auto-Refresh aktiv (30s)');
+  } else {
+    clearInterval(state.autoRefreshTimer);
+    showToast('Auto-Refresh gestoppt');
+  }
+});
+
+function doAutoRefresh() {
+  AUTO_REFRESH_KEYS.forEach(function (key) {
+    var item = DIAGNOSE.filter(function (d) { return d.key === key; })[0];
+    if (!item) return;
+    callApi(key).then(function (result) {
+      updateTileSubtitle(key, result.ts);
+      if (state.currentOutputKey === key) {
+        $('outputBody').innerHTML = renderStructured(key, result.output);
+        $('outputTs').textContent = result.ts;
+      }
+    }).catch(function () {});
+  });
+}
+
+// ---------- Pull to refresh ----------
+(function () {
+  var startY = null, pulled = false;
+  var indicator = $('pullIndicator');
+  document.addEventListener('touchstart', function (e) {
+    if (window.scrollY <= 0) startY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (startY === null || pulled) return;
+    var dy = e.touches[0].clientY - startY;
+    if (dy > 60 && window.scrollY <= 0) {
+      pulled = true;
+      indicator.classList.add('show');
+      Promise.all(['status', 'services'].map(function (key) {
+        return callApi(key).then(function (result) {
+          updateTileSubtitle(key, result.ts);
+        }).catch(function () {});
+      })).finally(function () {
+        setTimeout(function () { indicator.classList.remove('show'); }, 300);
+      });
+    }
+  }, { passive: true });
+  document.addEventListener('touchend', function () {
+    startY = null;
+    pulled = false;
+  });
+})();
+
+// ---------- ntfy hint ----------
+fetch('/api/ntfy-config', { credentials: 'same-origin' })
+  .then(function (r) { return r.ok ? r.json() : null; })
+  .then(function (cfg) {
+    if (cfg && cfg.url && cfg.topic) {
+      $('ntfyHint').innerHTML = 'Push-Benachrichtigungen via <a href="' + esc(cfg.url) + '/' + esc(cfg.topic) + '" target="_blank" rel="noopener">ntfy (' + esc(cfg.topic) + ')</a>';
+    }
+  })
+  .catch(function () {});
+
+// ---------- Initial status check ----------
+callApi('services').then(function (result) {
+  updateTileSubtitle('services', result.ts);
+  setStatusDot(result.output.indexOf('[DOWN]') !== -1 ? 'var(--red)' : 'var(--green)');
+}).catch(function (err) {
+  if (err.type === 'auth') {
+    setStatusDot('var(--red)');
+    showToast('Nicht eingeloggt – bitte Seite neu laden', true);
+  } else {
+    setStatusDot('var(--yellow)');
+  }
+});
+
+// ---------- Service worker ----------
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(function () {});
+}
+</script>
+</body>
+</html>
