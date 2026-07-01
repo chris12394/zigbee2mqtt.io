@@ -33,3 +33,22 @@ self.addEventListener('fetch', (event) => {
     )
   );
 });
+
+self.addEventListener('push', (event) => {
+  let data = { title: 'Homelab', body: 'Neue Benachrichtigung' };
+  try { data = event.data.json(); } catch (e) {}
+  event.waitUntil(
+    self.registration.showNotification(data.title, {
+      body: data.body,
+      icon: '/icon.svg',
+      badge: '/icon.svg',
+      vibrate: [200, 100, 200],
+      tag: 'homelab-' + Date.now(),
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(clients.openWindow('/'));
+});

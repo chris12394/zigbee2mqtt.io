@@ -159,6 +159,8 @@ table.out-table tr:last-child td{border-bottom:none}
     <div class="header-sub">pve · 192.168.198.83</div>
   </div>
   <button class="icon-btn" id="autoRefreshBtn">↻ 30s</button>
+  <button class="icon-btn" id="pushBtn" title="Web-Push aktivieren">🔔</button>
+  <button class="icon-btn" id="testPushBtn" title="Test-Push senden" style="display:none">↑ Test</button>
 </header>
 
 <div id="pullIndicator"><div class="pull-spinner"></div><span>Aktualisiere…</span></div>
@@ -663,10 +665,112 @@ callApi('services').then(function (result) {
   }
 });
 
+// ---------- Web Push ----------
+function urlBase64ToUint8Array(b64) {
+  var padding = '='.repeat((4 - b64.length % 4) % 4);
+  var base64 = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+  var raw = atob(base64);
+  return Uint8Array.from(Array.prototype.map.call(raw, function (c) { return c.charCodeAt(0); }));
+}
+
+function updatePushBtn(state) {
+  var btn = $('pushBtn');
+  var testBtn = $('testPushBtn');
+  btn.classList.remove('active');
+  if (state === 'active') {
+    btn.textContent = '🔔';
+    btn.classList.add('active');
+    btn.title = 'Push aktiv – klicken zum Deaktivieren';
+    testBtn.style.display = '';
+  } else if (state === 'denied') {
+    btn.textContent = '🔕';
+    btn.title = 'Benachrichtigungen blockiert (Browser-Einstellungen)';
+    btn.style.opacity = '.45';
+    btn.style.pointerEvents = 'none';
+    testBtn.style.display = 'none';
+  } else {
+    btn.textContent = '🔔';
+    btn.title = 'Web-Push aktivieren';
+    btn.style.opacity = '';
+    btn.style.pointerEvents = '';
+    testBtn.style.display = 'none';
+  }
+}
+
+async function initPushState() {
+  if (!('Notification' in window) || !('PushManager' in window)) return;
+  if (Notification.permission === 'denied') { updatePushBtn('denied'); return; }
+  try {
+    var reg = await navigator.serviceWorker.ready;
+    var sub = await reg.pushManager.getSubscription();
+    updatePushBtn(sub ? 'active' : 'inactive');
+  } catch (e) { updatePushBtn('inactive'); }
+}
+
+async function togglePush() {
+  if (!('Notification' in window) || !('PushManager' in window)) {
+    showToast('Web-Push wird von diesem Browser nicht unterstützt', true);
+    return;
+  }
+  var reg = await navigator.serviceWorker.ready;
+  var sub = await reg.pushManager.getSubscription();
+
+  if (sub) {
+    await sub.unsubscribe();
+    updatePushBtn('inactive');
+    showToast('Push-Benachrichtigungen deaktiviert');
+    return;
+  }
+
+  var perm = await Notification.requestPermission();
+  if (perm !== 'granted') {
+    updatePushBtn('denied');
+    showToast('Benachrichtigungen abgelehnt', true);
+    return;
+  }
+
+  try {
+    var resp = await fetch('/api/push/vapid-key', { credentials: 'same-origin' });
+    if (!resp.ok) throw new Error('VAPID-Key nicht abrufbar');
+    var cfg = await resp.json();
+    sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(cfg.key),
+    });
+    var saveResp = await fetch('/api/push/subscribe', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(sub),
+    });
+    if (!saveResp.ok) throw new Error('Subscription konnte nicht gespeichert werden');
+    updatePushBtn('active');
+    showToast('Push-Benachrichtigungen aktiviert ✓');
+  } catch (err) {
+    showToast(err.message || 'Push-Aktivierung fehlgeschlagen', true);
+    updatePushBtn('inactive');
+  }
+}
+
+async function sendTestPush() {
+  try {
+    var resp = await fetch('/api/push/test', { method: 'POST', credentials: 'same-origin' });
+    var data = await resp.json();
+    showToast('Test-Push gesendet (' + (data.sent || 0) + ' Empfänger)');
+  } catch (e) {
+    showToast('Test-Push fehlgeschlagen', true);
+  }
+}
+
+$('pushBtn').addEventListener('click', function () { togglePush().catch(function () {}); });
+$('testPushBtn').addEventListener('click', function () { sendTestPush().catch(function () {}); });
+
 // ---------- Service worker ----------
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js').catch(function () {});
 }
+
+initPushState().catch(function () {});
 </script>
 </body>
 </html>
