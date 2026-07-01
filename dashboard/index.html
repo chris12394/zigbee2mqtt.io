@@ -144,6 +144,14 @@ table.out-table tr:last-child td{border-bottom:none}
 .toast.visible{opacity:1;transform:translateX(-50%) translateY(0)}
 
 .ntfy-hint{margin-top:22px;text-align:center;font-size:11px;color:var(--text-muted)}
+
+.hist-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:8px}
+.hist-item:last-child{margin-bottom:0}
+.hist-item-header{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px}
+.hist-item-title{font-size:13px;font-weight:600;color:var(--text)}
+.hist-item-ts{font-size:10.5px;color:var(--text-muted);font-family:var(--font-mono);white-space:nowrap;flex-shrink:0}
+.hist-item-body{font-size:12.5px;color:var(--text-muted);line-height:1.5}
+.hist-empty{text-align:center;padding:32px 16px;color:var(--text-muted);font-size:13px}
 .ntfy-hint a{color:var(--accent);text-decoration:none}
 
 ::-webkit-scrollbar{width:4px}
@@ -159,8 +167,8 @@ table.out-table tr:last-child td{border-bottom:none}
     <div class="header-sub">pve · 192.168.198.83</div>
   </div>
   <button class="icon-btn" id="autoRefreshBtn">↻ 30s</button>
+  <button class="icon-btn" id="histBtn" title="Benachrichtigungs-Verlauf">📜</button>
   <button class="icon-btn" id="pushBtn" title="Web-Push aktivieren">🔔</button>
-  <button class="icon-btn" id="testPushBtn" title="Test-Push senden" style="display:none">↑ Test</button>
 </header>
 
 <div id="pullIndicator"><div class="pull-spinner"></div><span>Aktualisiere…</span></div>
@@ -196,6 +204,16 @@ table.out-table tr:last-child td{border-bottom:none}
       <button class="btn btn-confirm" id="confirmOk">Ausführen</button>
     </div>
   </div>
+</div>
+
+<div class="output-overlay" id="historyOverlay"></div>
+<div class="output-panel" id="historyPanel">
+  <div class="output-panel-handle" id="historyHandle"></div>
+  <div class="output-panel-header">
+    <span class="output-panel-title">Benachrichtigungs-Verlauf</span>
+    <div class="output-panel-close" id="historyClose">✕</div>
+  </div>
+  <div class="output-panel-body" id="historyBody"></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -675,25 +693,21 @@ function urlBase64ToUint8Array(b64) {
 
 function updatePushBtn(state) {
   var btn = $('pushBtn');
-  var testBtn = $('testPushBtn');
   btn.classList.remove('active');
   if (state === 'active') {
     btn.textContent = '🔔';
     btn.classList.add('active');
     btn.title = 'Push aktiv – klicken zum Deaktivieren';
-    testBtn.style.display = '';
   } else if (state === 'denied') {
     btn.textContent = '🔕';
     btn.title = 'Benachrichtigungen blockiert (Browser-Einstellungen)';
     btn.style.opacity = '.45';
     btn.style.pointerEvents = 'none';
-    testBtn.style.display = 'none';
   } else {
     btn.textContent = '🔔';
     btn.title = 'Web-Push aktivieren';
     btn.style.opacity = '';
     btn.style.pointerEvents = '';
-    testBtn.style.display = 'none';
   }
 }
 
@@ -752,18 +766,83 @@ async function togglePush() {
   }
 }
 
-async function sendTestPush() {
+$('pushBtn').addEventListener('click', function () { togglePush().catch(function () {}); });
+
+// ---------- Benachrichtigungs-Verlauf ----------
+function formatHistoryTs(ts) {
+  var d = new Date(ts.replace(' ', 'T') + 'Z');
+  if (isNaN(d)) return ts;
+  var dd = String(d.getDate()).padStart(2, '0');
+  var mo = String(d.getMonth() + 1).padStart(2, '0');
+  var hh = String(d.getHours()).padStart(2, '0');
+  var mi = String(d.getMinutes()).padStart(2, '0');
+  return dd + '.' + mo + '. ' + hh + ':' + mi;
+}
+
+async function loadHistory() {
+  var body = $('historyBody');
+  body.innerHTML = '<div class="hist-empty" style="padding-top:24px">Lade…</div>';
   try {
-    var resp = await fetch('/api/push/test', { method: 'POST', credentials: 'same-origin' });
-    var data = await resp.json();
-    showToast('Test-Push gesendet (' + (data.sent || 0) + ' Empfänger)');
+    var resp = await fetch('/api/push/history', { credentials: 'same-origin' });
+    if (resp.status === 401) {
+      body.innerHTML = '<div class="hist-empty">Nicht eingeloggt – bitte Seite neu laden</div>';
+      return;
+    }
+    var items = await resp.json();
+    if (!Array.isArray(items) || !items.length) {
+      body.innerHTML = '<div class="hist-empty">Noch keine Benachrichtigungen</div>';
+      return;
+    }
+    body.innerHTML = items.map(function (item) {
+      return '<div class="hist-item">' +
+        '<div class="hist-item-header">' +
+          '<span class="hist-item-title">' + esc(item.title) + '</span>' +
+          '<span class="hist-item-ts">' + formatHistoryTs(item.ts) + '</span>' +
+        '</div>' +
+        '<div class="hist-item-body">' + esc(item.message) + '</div>' +
+      '</div>';
+    }).join('');
   } catch (e) {
-    showToast('Test-Push fehlgeschlagen', true);
+    body.innerHTML = '<div class="hist-empty">Fehler beim Laden</div>';
   }
 }
 
-$('pushBtn').addEventListener('click', function () { togglePush().catch(function () {}); });
-$('testPushBtn').addEventListener('click', function () { sendTestPush().catch(function () {}); });
+function openHistory() {
+  loadHistory().catch(function () {});
+  $('historyOverlay').classList.add('visible');
+  $('historyPanel').classList.add('visible');
+}
+
+function closeHistory() {
+  $('historyOverlay').classList.remove('visible');
+  $('historyPanel').classList.remove('visible');
+}
+
+$('histBtn').addEventListener('click', openHistory);
+$('historyClose').addEventListener('click', closeHistory);
+$('historyOverlay').addEventListener('click', closeHistory);
+
+// Swipe-down auf Handle schließt History-Panel
+(function () {
+  var startY = null;
+  var panel = $('historyPanel');
+  function onStart(e) { startY = (e.touches ? e.touches[0] : e).clientY; }
+  function onMove(e) {
+    if (startY === null) return;
+    var dy = (e.touches ? e.touches[0] : e).clientY - startY;
+    if (dy > 0) panel.style.transform = 'translateY(' + dy + 'px)';
+  }
+  function onEnd(e) {
+    if (startY === null) return;
+    var dy = (e.changedTouches ? e.changedTouches[0] : e).clientY - startY;
+    panel.style.transform = '';
+    startY = null;
+    if (dy > 80) closeHistory();
+  }
+  $('historyHandle').addEventListener('touchstart', onStart, { passive: true });
+  $('historyHandle').addEventListener('touchmove', onMove, { passive: true });
+  $('historyHandle').addEventListener('touchend', onEnd);
+})();
 
 // ---------- Service worker ----------
 if ('serviceWorker' in navigator) {
