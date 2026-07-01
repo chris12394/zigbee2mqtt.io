@@ -715,10 +715,25 @@ async function initPushState() {
   if (!('Notification' in window) || !('PushManager' in window)) return;
   if (Notification.permission === 'denied') { updatePushBtn('denied'); return; }
   try {
-    var reg = await navigator.serviceWorker.ready;
+    var reg = await ensureSW();
     var sub = await reg.pushManager.getSubscription();
     updatePushBtn(sub ? 'active' : 'inactive');
   } catch (e) { updatePushBtn('inactive'); }
+}
+
+async function ensureSW() {
+  if (!('serviceWorker' in navigator)) throw new Error('Service Worker nicht unterstuetzt');
+  var reg = await navigator.serviceWorker.getRegistration();
+  if (!reg) { reg = await navigator.serviceWorker.register('sw.js'); }
+  if (!reg.active) {
+    await new Promise(function (resolve, reject) {
+      var to = setTimeout(function () { reject(new Error('SW-Aktivierung Timeout')); }, 5000);
+      var w = reg.installing || reg.waiting;
+      if (w) { w.addEventListener('statechange', function () { if (w.state === 'activated') { clearTimeout(to); resolve(); } }); }
+      else { clearTimeout(to); resolve(); }
+    });
+  }
+  return reg;
 }
 
 async function togglePush() {
@@ -726,7 +741,7 @@ async function togglePush() {
     showToast('Web-Push wird von diesem Browser nicht unterstützt', true);
     return;
   }
-  var reg = await navigator.serviceWorker.ready;
+  var reg = await ensureSW();
   var sub = await reg.pushManager.getSubscription();
 
   if (sub) {
